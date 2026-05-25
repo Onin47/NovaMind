@@ -15,11 +15,12 @@ interface LibraryViewProps {
   onStudySet: (setId: string) => void
   onEditSet?: (setId: string) => void
   onImportSet?: (set: StudySet) => void
+  onCreateSet?: () => void
 }
 
 const subjects = ['All', 'Biology', 'Languages', 'History', 'Mathematics', 'Science', 'Other']
 
-export function LibraryView({ studySets, onViewSet, onDeleteSet, onStudySet, onEditSet, onImportSet }: LibraryViewProps) {
+export function LibraryView({ studySets, onViewSet, onDeleteSet, onStudySet, onEditSet, onImportSet, onCreateSet }: LibraryViewProps) {
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const handleImportClick = () => {
@@ -116,6 +117,9 @@ export function LibraryView({ studySets, onViewSet, onDeleteSet, onStudySet, onE
             <input ref={fileInputRef} type="file" accept=".csv,.txt" onChange={handleFileChange} className="hidden" />
             <GlassButton size="sm" onClick={handleImportClick} className="ml-2">
               Import CSV
+            </GlassButton>
+            <GlassButton size="sm" onClick={() => onCreateSet?.()} className="ml-2">
+              Create Set
             </GlassButton>
           </div>
         </div>
@@ -222,6 +226,12 @@ export function LibraryView({ studySets, onViewSet, onDeleteSet, onStudySet, onE
               ? 'Try adjusting your search or filters'
               : 'Create your first study set to get started'}
           </p>
+          <div className="flex items-center justify-center gap-3">
+            <GlassButton variant="primary" onClick={() => onCreateSet?.()} className="gap-2">
+              <BookOpen className="w-4 h-4" />
+              Create your first set
+            </GlassButton>
+          </div>
         </GlassCard>
       )}
     </div>

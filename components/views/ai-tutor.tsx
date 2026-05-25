@@ -1,13 +1,13 @@
 'use client'
 
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
-import { Send, Sparkles, BookOpen, Brain, Lightbulb, Loader2, Copy, Check, Key, Wifi, AlertTriangle, Play } from 'lucide-react'
+import { Send, Sparkles, BookOpen, Brain, Lightbulb, Loader2, Copy, Check, Play } from 'lucide-react'
 import type { Components } from 'react-markdown'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { GlassCard, GlassButton, GlassTextarea, GlassBadge } from '@/components/glass-ui'
 import { type AIMessage, type TutorMode, generateId } from '@/lib/store'
-import { cn, isOnline } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { StudyAudio } from '@/lib/audio'
 
 interface AITutorViewProps {
@@ -167,14 +167,7 @@ export function AITutorView({ messages, isTyping, onSendMessage, mode, onModeCha
   const [input, setInput] = useState('')
   const [copiedId, setCopiedId] = useState<string | null>(null)
   
-  // Local Settings & Wizard State
-  const [showSettings, setShowSettings] = useState(false)
-  const [apiKeyInput, setApiKeyInput] = useState<string>(() => {
-    if (typeof window === 'undefined') return ''
-    return localStorage.getItem('novamind_gemini_key') || ''
-  })
-  const [keyStatus, setKeyStatus] = useState<'idle' | 'testing' | 'success' | 'failed'>('idle')
-  const [keyDiagnosticMsg, setKeyDiagnosticMsg] = useState('')
+  // Local Settings (wizard removed) — server key preferred
   
   // Demo Mode State
   const [demoActive, setDemoActive] = useState<boolean>(() => {
@@ -198,6 +191,7 @@ export function AITutorView({ messages, isTyping, onSendMessage, mode, onModeCha
   })
   const [demoIsTyping, setDemoIsTyping] = useState(false)
   const [isAppOnline, setIsAppOnline] = useState<boolean>(() => typeof window !== 'undefined' ? navigator.onLine : true)
+  const [serverKeyAvailable, setServerKeyAvailable] = useState<boolean>(false)
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -239,6 +233,33 @@ export function AITutorView({ messages, isTyping, onSendMessage, mode, onModeCha
       window.removeEventListener('offline', handleOffline)
     }
   }, [])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const checkServerKey = async () => {
+      try {
+        const response = await fetch('/api/key-status')
+        const data = await response.json()
+        if (data?.serverKeyAvailable) {
+          setServerKeyAvailable(true)
+          if (isAppOnline) {
+            setTimeout(() => activateDemo(false), 0)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to check server key status', error)
+      }
+    }
+
+    checkServerKey()
+  }, [isAppOnline])
+
+  useEffect(() => {
+    if (serverKeyAvailable && isAppOnline) {
+      setTimeout(() => activateDemo(false), 0)
+    }
+  }, [serverKeyAvailable, isAppOnline])
 
   // Scroll to bottom
   const demoModeActive = demoActive || !isAppOnline
@@ -305,71 +326,9 @@ export function AITutorView({ messages, isTyping, onSendMessage, mode, onModeCha
     setTimeout(() => setCopiedId(null), 2000)
   }, [])
 
-  // Save API key
-  const handleSaveKey = () => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('novamind_gemini_key', apiKeyInput.trim())
-      setKeyStatus('success')
-      setKeyDiagnosticMsg('API Key saved locally in browser context!')
-      StudyAudio.playSuccess()
-      
-      // Turn off demo mode if key is set
-      if (apiKeyInput.trim()) {
-        activateDemo(false)
-      }
-      
-      setTimeout(() => setKeyStatus('idle'), 2500)
-    }
-  }
-
-  // Diagnostic connection test
-  const handleTestConnection = async () => {
-    setKeyStatus('testing')
-    setKeyDiagnosticMsg('Connecting to tutor endpoint...')
-    StudyAudio.playTransition()
-
-    if (!isOnline()) {
-      setKeyStatus('failed')
-      setKeyDiagnosticMsg('Offline — cannot test connection without internet.')
-      StudyAudio.playIncorrect()
-      return
-    }
-
-    try {
-      const response = await fetch('/api/tutor', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          messages: [{ role: 'user', content: 'Ping connection test. Reply with exactly the word "Success" if active.' }],
-          mode: 'direct',
-          apiKey: apiKeyInput.trim(),
-        })
-      })
-
-      const data = await response.json()
-      if (response.ok && data?.content && !data?.isKeyMissing) {
-        setKeyStatus('success')
-        setKeyDiagnosticMsg('Connection Diagnostic: Passed! Nova is online! 🎉')
-        StudyAudio.playSuccess()
-        activateDemo(false) // Disable demo as actual endpoint works!
-      } else {
-        setKeyStatus('failed')
-        setKeyDiagnosticMsg(data?.content || 'Diagnostics failed. Key is invalid or rate limited.')
-        StudyAudio.playIncorrect()
-      }
-    } catch (error) {
-      console.error(error)
-      setKeyStatus('failed')
-      setKeyDiagnosticMsg('Network test failed. Server is unreachable.')
-      StudyAudio.playIncorrect()
-    }
-  }
-
-  // Check if API key is currently entered locally
-  const hasLocalKey = !!apiKeyInput.trim()
-  const serverKeyAlert = messages[messages.length - 1]?.content?.includes('isn\'t configured yet')
+  // No local key handling — prefer server-side configuration
+  const hasLocalKey = false
+  const serverKeyAlert = !serverKeyAvailable && messages[messages.length - 1]?.content?.includes("isn't configured yet")
 
   return (
     <div className="h-[calc(100vh-10rem)] sm:h-[calc(100vh-8rem)] lg:h-[calc(100vh-4rem)] flex flex-col space-y-4">
@@ -390,9 +349,10 @@ export function AITutorView({ messages, isTyping, onSendMessage, mode, onModeCha
             <div className="flex items-center gap-2">
               <h1 className="text-lg sm:text-xl font-bold">Nova AI</h1>
               {demoModeActive && <GlassBadge variant="warning">Offline Demo</GlassBadge>}
+              {!demoModeActive && serverKeyAvailable && <GlassBadge variant="success">Server AI Ready</GlassBadge>}
             </div>
             <p className="text-xs text-muted-foreground truncate">
-              {demoModeActive ? "Simulating offline Socratic dialogue" : "Your personal AI study companion"}
+              {demoModeActive ? "Simulating offline Socratic dialogue" : serverKeyAvailable ? "Connected to server-side Gemini" : "Your personal AI study companion"}
             </p>
           </div>
         </div>
@@ -409,15 +369,7 @@ export function AITutorView({ messages, isTyping, onSendMessage, mode, onModeCha
             {demoModeActive ? "Exit Demo" : "Demo Mode"}
           </GlassButton>
 
-          <GlassButton
-            size="sm"
-            variant={showSettings ? "pressed" : "default"}
-            onClick={() => setShowSettings(!showSettings)}
-            className="gap-1.5"
-          >
-            <Key className="w-3.5 h-3.5" />
-            Wizard
-          </GlassButton>
+          {/* Wizard removed — server-side key used when available */}
 
           <div className="h-4 w-px bg-white/10 mx-1 hidden sm:block" />
 
@@ -440,76 +392,7 @@ export function AITutorView({ messages, isTyping, onSendMessage, mode, onModeCha
         </div>
       </GlassCard>
 
-      {/* Activation Wizard/Key Setup Panel */}
-      {showSettings && (
-        <GlassCard className="p-4 sm:p-5 border border-purple-500/20" gradient="from-purple-500/10 to-transparent">
-          <div className="flex items-start justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Key className="w-5 h-5 text-purple-400" />
-              <h3 className="font-semibold text-sm sm:text-base">Nova AI Activation Wizard</h3>
-            </div>
-            <GlassBadge variant={demoModeActive ? "warning" : hasLocalKey ? "success" : "error"}>
-              {demoModeActive ? "Local Demo Active" : hasLocalKey ? "Active (Local Key)" : "Setup Required"}
-            </GlassBadge>
-          </div>
-
-          <p className="text-xs sm:text-sm text-muted-foreground mb-4 text-pretty leading-relaxed">
-              Nova utilizes the free, fast Google Gemini API to run. You can configure your key below. Keys are stored safely in your own browser local sandbox, never uploaded to third parties.
-          </p>
-
-          <div className="flex flex-col sm:flex-row gap-3 items-stretch mb-4">
-            <div className="relative flex-1">
-              <input
-                type="password"
-                placeholder="Paste Gemini API Key (AI Studio)"
-                value={apiKeyInput}
-                onChange={(e) => setApiKeyInput(e.target.value)}
-                className="w-full h-10 px-3.5 py-2 pr-10 text-xs sm:text-sm rounded-xl bg-black/40 border border-white/15 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 focus:border-primary/40 transition-all shadow-[inset_0_1px_3px_rgba(0,0,0,0.5)]"
-              />
-              <Key className="absolute right-3 top-3 w-4 h-4 text-muted-foreground" />
-            </div>
-            
-            <div className="flex gap-2">
-              <GlassButton size="sm" onClick={handleSaveKey} className="flex-1 sm:flex-none">
-                Save Key
-              </GlassButton>
-              <GlassButton size="sm" variant="primary" onClick={handleTestConnection} disabled={keyStatus === 'testing'} className="flex-1 sm:flex-none gap-1.5">
-                {keyStatus === 'testing' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Wifi className="w-3.5 h-3.5" />}
-                Test
-              </GlassButton>
-            </div>
-          </div>
-
-          {keyStatus !== 'idle' && (
-            <div className={cn(
-              "p-3 rounded-xl text-xs flex items-start gap-2",
-              keyStatus === 'testing' && "bg-white/5 text-muted-foreground",
-              keyStatus === 'success' && "bg-emerald-500/10 border border-emerald-500/20 text-emerald-400",
-              keyStatus === 'failed' && "bg-red-500/10 border border-red-500/20 text-red-400"
-            )}>
-              {keyStatus === 'testing' && <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin" />}
-              {keyStatus === 'success' && <Check className="w-3.5 h-3.5 shrink-0 text-emerald-400" />}
-              {keyStatus === 'failed' && <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-red-400" />}
-              <span className="font-medium">{keyDiagnosticMsg}</span>
-            </div>
-          )}
-
-          <div className="mt-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-t border-white/5 pt-3">
-            <a href="https://aistudio.google.com/" target="_blank" rel="noreferrer" className="text-[10px] sm:text-xs text-primary hover:underline flex items-center gap-1">
-              Get a free Gemini API Key from Google AI Studio &rarr;
-            </a>
-            <button 
-              onClick={() => {
-                activateDemo(!demoActive)
-                setShowSettings(false)
-              }} 
-              className="text-[10px] sm:text-xs text-amber-400 hover:underline flex items-center gap-1 font-medium"
-            >
-              Or play offline Socratic Demo Mode instead &rarr;
-            </button>
-          </div>
-        </GlassCard>
-      )}
+      {/* Activation wizard removed — server-side key is preferred */}
 
       {/* Main Chat Workspace */}
       <GlassCard className="flex-1 overflow-hidden flex flex-col shadow-inner" variant="solid">
@@ -523,24 +406,7 @@ export function AITutorView({ messages, isTyping, onSendMessage, mode, onModeCha
           aria-atomic="false"
         >
           
-          {/* Key Missing / Wizard Prompt */}
-          {!demoModeActive && serverKeyAlert && !hasLocalKey && (
-            <GlassCard className="p-4 mb-4 border border-amber-500/20 text-center" gradient="from-amber-500/5 to-transparent">
-              <AlertTriangle className="w-8 h-8 text-amber-400 mx-auto mb-2 animate-bounce" />
-              <h4 className="font-semibold text-sm sm:text-base mb-1">Configuration Required</h4>
-              <p className="text-xs text-muted-foreground max-w-sm mx-auto mb-4 text-pretty leading-relaxed">
-                The local developer environment has not set a Gemini API key. Paste your own key in our browser manager or play the offline demo!
-              </p>
-              <div className="flex gap-2 justify-center max-w-xs mx-auto">
-                <GlassButton size="sm" variant="primary" className="flex-1" onClick={() => setShowSettings(true)}>
-                  Open Setup Wizard
-                </GlassButton>
-                <GlassButton size="sm" className="flex-1" onClick={() => activateDemo(true)}>
-                  Launch Socratic Demo
-                </GlassButton>
-              </div>
-            </GlassCard>
-          )}
+          {/* No local-key prompt: server key used when available; fallback is demo mode */}
 
           {activeMessages.map((message) => (
             <MessageBubble

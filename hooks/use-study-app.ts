@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useEffect } from 'react'
-import { sampleStudySets, sampleQuizQuestions, type StudySet, type Flashcard, type AIMessage, type QuizQuestion, type TutorMode, generateId, serializeStudySets, deserializeStudySets } from '@/lib/store'
+import { sampleQuizQuestions, sampleStudySets, type StudySet, type Flashcard, type AIMessage, type QuizQuestion, type TutorMode, generateId, serializeStudySets, deserializeStudySets } from '@/lib/store'
 import { loadStudySets, saveStudySets, loadAiMessages, saveAiMessages, loadTutorMode, saveTutorMode } from '@/lib/persistence'
 import { isOnline } from '@/lib/utils'
 
@@ -69,11 +69,6 @@ function normalizeStudySet(set: unknown): StudySet {
   }
 }
 
-function normalizeStudySets(sets: unknown): StudySet[] {
-  if (!Array.isArray(sets)) return []
-  return sets.map(normalizeStudySet)
-}
-
 function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * DAY_MS)
 }
@@ -106,7 +101,7 @@ function sm2({
 }
 
 export function useStudyApp() {
-  const [studySets, setStudySets] = useState<StudySet[]>(normalizeStudySets(sampleStudySets))
+  const [studySets, setStudySets] = useState<StudySet[]>([])
   const [quizQuestions] = useState<QuizQuestion[]>(sampleQuizQuestions)
   const [aiMessages, setAiMessages] = useState<AIMessage[]>([
     {
@@ -128,7 +123,21 @@ export function useStudyApp() {
         const storedMessages = await loadAiMessages()
         const storedMode = await loadTutorMode()
 
-        if (storedSets.length > 0) {
+        // If the only sets in IndexedDB are the bundled sample sets (from prior dev builds),
+        // treat this as a fresh install and clear them so new users start with an empty library.
+        const isOnlySampleSeed =
+          storedSets.length > 0 &&
+          storedSets.length === sampleStudySets.length &&
+          storedSets.every((s) => sampleStudySets.some((ss) => ss.id === s.id && ss.title === s.title))
+
+        if (isOnlySampleSeed) {
+          // Clear persisted sample sets and keep in-memory state empty for a clean first-run
+          try {
+            await saveStudySets([])
+          } catch (err) {
+            console.error('Failed to clear seeded sample study sets:', err)
+          }
+        } else if (storedSets.length > 0) {
           setStudySets(storedSets)
         }
         if (storedMessages.length > 0) {

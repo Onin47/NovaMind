@@ -112,7 +112,10 @@ export function StudyApp() {
             onViewSet={handleStartStudy}
             onDeleteSet={deleteStudySet}
             onStudySet={handleStartStudy}
-            onEditSet={handleEditSet}            onImportSet={addStudySet}          />
+            onEditSet={handleEditSet}
+            onImportSet={addStudySet}
+            onCreateSet={() => setCurrentView('create')}
+          />
         )}
 
         {currentView === 'ai-tutor' && (
